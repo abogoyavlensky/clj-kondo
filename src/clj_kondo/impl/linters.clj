@@ -174,6 +174,7 @@
 (defn lint-single-operand-comparison
   "Lints calls of single operand comparisons with always the same vlaue."
   [call]
+  (def DEBUG call)
   (let [ns-name (:resolved-ns call)
         core-ns (utils/one-of ns-name [clojure.core cljs.core])]
     (when core-ns
@@ -513,3 +514,67 @@
 
 (comment
   )
+
+
+
+(comment
+  (require '[clj-kondo.test-utils :refer [lint!]])
+  (let [x 1]
+    ; (prn "Hello!")
+    (lint! "(java.lang.Foo/Bar)")
+    (lint! "(clojure.string/includes? \"foo\" \"o\")")
+    (lint! "(= 20 30)")
+    (lint! "(= 20)" "--lang" "cljs")
+    (lint! "(and 40)")
+    (lint! "(or true)")
+    (lint! "(-> 10 (> 20))")
+    (lint! "(->> 10 (> 20))")
+    (lint! "(->> 10 (>))")
+    (lint! "(def x 11)(->> x (+ 1) (>))")
+
+    (lint! "(> 10)")
+    (lint! "(try (count [1 1]))")
+    (lint! "(try (count [1 1]) (catch Exception e (prn \"Caought\")))")
+    (lint! "(try (/ 1 0) (catch Exception e (prn \"Caought\")))")))
+
+
+(defn- lint-try-without-clauses
+  [call]
+  (when (utils/one-of (:name call) [try try+])
+    (let [clauses #{'catch 'finally}
+          tokens (->> (get-in call [:expr :children])
+                   rest
+                   (map utils/symbol-call)
+                   (set))]
+      (when (set/intersection tokens clauses)
+        (node->line
+          (:filename call)
+          (:expr call)
+          :warning
+          :try-without-clauses
+          ; "Try should has at least one claus `catch` or `finally`")))))
+          "Missing `catch` or `finally` clause in try")))))
+
+
+(comment
+  (let [expr (:expr (:name DEBUG))
+        fn-name (:name DEBUG)
+        try-symbols ['try]
+        clauses #{'catch 'finally}
+        tokens (->> (:children expr)
+                 rest
+                 (map utils/symbol-call)
+                 (set))]
+                ;  (map (comp utils/symbol-from-token first :children)))]
+    ; (contains? try-symbols fn-name))
+    ; (utils/one-of fn-name try-symbols)))
+    (utils/one-of fn-name [try try+])))
+    ; (set/intersection tokens clauses)))
+    ; (utils/one-of tokens clauses)))
+    ; (utils/symbol-call expr)
+    ; (utils/map-node-vals expr)))
+
+
+; TODO: remove!
+; `call.expr` example:
+; (:tag :format-string :wrap-length :seq-fn :children)
