@@ -174,7 +174,6 @@
 (defn lint-single-operand-comparison
   "Lints calls of single operand comparisons with always the same vlaue."
   [call]
-  (def DEBUG call)
   (let [ns-name (:resolved-ns call)
         core-ns (utils/one-of ns-name [clojure.core cljs.core])]
     (when core-ns
@@ -192,6 +191,21 @@
                    (str ns-name "/" fn-name)
                    (some? const-true))))))))
 
+(defn- lint-missing-clause-in-try
+  [call]
+  (when (utils/one-of (:name call) [try try+])
+    (let [clauses #{'catch 'finally}
+          tokens (->> (get-in call [:expr :children])
+                   rest
+                   (map utils/symbol-call)
+                   (set))]
+      (when-not (seq (set/intersection tokens clauses))
+        (node->line
+          (:filename call)
+          (:expr call)
+          :warning
+          :missing-clause-in-try
+          "Missing catch or finally in try")))))
 
 (defn lint-var-usage
   "Lints calls for arity errors, private calls errors. Also dispatches
@@ -303,6 +317,10 @@
                              (and call?
                                   (not (utils/linter-disabled? call :single-operand-comparison))
                                   (lint-single-operand-comparison call))
+                             missing-clause-in-try-error
+                             (and call?
+                                  (not (utils/linter-disabled? call :missing-clause-in-try))
+                                  (lint-missing-clause-in-try call))
                              errors
                              [(when arity-error?
                                 {:filename filename
@@ -314,6 +332,8 @@
                                  :message (arity-error fn-ns fn-name arity fixed-arities varargs-min-arity)})
                               (when single-operand-comparison-error
                                 single-operand-comparison-error)
+                              (when missing-clause-in-try-error
+                                missing-clause-in-try-error)
                               (when (and (:private called-fn)
                                          (not= caller-ns-sym
                                                fn-ns)
@@ -535,29 +555,13 @@
     (lint! "(> 10)")
     (lint! "(try (count [1 1]))")
     (lint! "(try (count [1 1]) (catch Exception e (prn \"Caought\")))")
+    (lint! "(try (count [1 1]) (finally (prn \"Do something always\")))")
     (lint! "(try (/ 1 0) (catch Exception e (prn \"Caought\")))")))
 
 
-(defn- lint-try-without-clauses
-  [call]
-  (when (utils/one-of (:name call) [try try+])
-    (let [clauses #{'catch 'finally}
-          tokens (->> (get-in call [:expr :children])
-                   rest
-                   (map utils/symbol-call)
-                   (set))]
-      (when (set/intersection tokens clauses)
-        (node->line
-          (:filename call)
-          (:expr call)
-          :warning
-          :try-without-clauses
-          ; "Try should has at least one claus `catch` or `finally`")))))
-          "Missing `catch` or `finally` clause in try")))))
-
 
 (comment
-  (let [expr (:expr (:name DEBUG))
+  (let [expr (:expr DEBUG)
         fn-name (:name DEBUG)
         try-symbols ['try]
         clauses #{'catch 'finally}
@@ -578,3 +582,24 @@
 ; TODO: remove!
 ; `call.expr` example:
 ; (:tag :format-string :wrap-length :seq-fn :children)
+
+
+
+(comment
+  (let [call DEBUG]
+    (when (utils/one-of (:name call) [try try+])
+      (let [clauses #{'catch 'finally}
+            tokens (->> (get-in call [:expr :children])
+                     rest
+                     (map utils/symbol-call)
+                     (set))])))
+        ; (when-not (set/intersection tokens clauses))))))
+        ; tokens))))
+        ; (set/intersection tokens clauses)))))
+        ; (when-not (seq (set/intersection tokens clauses))
+          ; "asd")))
+  (lint-missing-clause-in-try DEBUG))
+
+
+; Warning example:
+; {:type :missing-clause-in-try, :message "Missing catch or finally in try", :level :warning, :row 1, :end-row 1, :end-col 20, :col 1, :filename "<stdin>"}
